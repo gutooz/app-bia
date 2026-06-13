@@ -448,7 +448,7 @@ Mensagem do usuário: ${userMessage}`;
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       contents: [{ parts: [{ text: prompt }] }],
-      generationConfig: { temperature: 0.1, maxOutputTokens: 256 }
+      generationConfig: { temperature: 0.1, maxOutputTokens: 512 }
     })
   });
 
