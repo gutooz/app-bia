@@ -432,12 +432,16 @@ Formatos possíveis:
 {"action":"tarefa","tit":"string","pri":"alta|media|baixa","due":"YYYY-MM-DD ou null","desc":"string ou null"}
 {"action":"audiencia","date":"YYYY-MM-DD","time":"HH:MM","cli":"nome do cliente","notes":"string ou null"}
 {"action":"nota","content":"string"}
+{"action":"listar","tipo":"tarefas|audiencias|tudo"}
 {"action":"ajuda"}
 
 Regras:
 - Audiências SOMENTE às quartas-feiras. Se o dia pedido não for quarta, escolha a quarta mais próxima.
 - Prioridade padrão "media". Use "alta" para urgente/prazo/imediato. "baixa" para eventual/sem pressa.
 - "due": amanhã=${amanha}, semana que vem≈${semanaQ}. null se não houver prazo.
+- Use {"action":"listar","tipo":"tarefas"} para pedidos de ver/listar/mostrar tarefas.
+- Use {"action":"listar","tipo":"audiencias"} para pedidos de ver/listar audiências.
+- Use {"action":"listar","tipo":"tudo"} para listar tudo junto.
 - Retorne {"action":"ajuda"} se não entender ou for saudação/pergunta genérica.
 
 Mensagem do usuário: ${userMessage}`;
@@ -491,6 +495,17 @@ function parseSimples(txt) {
     }
     // Só nome e horário sem data — retorna ajuda com dica
     return { action: 'ajuda_audiencia' };
+  }
+
+  // Listar
+  if (/\b(list|listar|mostrar|ver|exibir)\b.*(tarefa|task)/i.test(tl) || /^(\/tarefas|tarefas)$/i.test(tl)) {
+    return { action: 'listar', tipo: 'tarefas' };
+  }
+  if (/\b(list|listar|mostrar|ver|exibir)\b.*(audi[eê]ncia)/i.test(tl) || /^(\/audiencias|audiências)$/i.test(tl)) {
+    return { action: 'listar', tipo: 'audiencias' };
+  }
+  if (/\b(list|listar|mostrar|ver|exibir)\b.*(tudo|agenda|resumo)/i.test(tl)) {
+    return { action: 'listar', tipo: 'tudo' };
   }
 
   // Nota
@@ -562,6 +577,43 @@ async function handleUpdate(u) {
       broadcastData();
       broadcastLog('Nova anotação via IA', 'ok');
       reply = `✅ Anotação salva!\n\n📝 <i>${intent.content}</i>`;
+
+    } else if (intent.action === 'listar') {
+      const tipo = intent.tipo || 'tudo';
+      const partes = [];
+
+      if (tipo === 'tarefas' || tipo === 'tudo') {
+        const tasks = await db.getTasks();
+        const ativas = tasks.filter(t => t.st !== 'feito');
+        if (ativas.length === 0) {
+          partes.push('📋 <b>Tarefas</b>\nNenhuma tarefa pendente.');
+        } else {
+          const priIcon = { alta: '🔴', media: '🟡', baixa: '🟢' };
+          const stLabel = { af: 'A fazer', fazendo: 'Fazendo' };
+          const linhas = ativas.map(t => {
+            const prazo = t.due ? ` · 📅 ${new Date(t.due + 'T12:00:00').toLocaleDateString('pt-BR')}` : '';
+            return `${priIcon[t.pri] || '🟡'} ${t.tit}${prazo} <i>(${stLabel[t.st] || t.st})</i>`;
+          });
+          partes.push(`📋 <b>Tarefas (${ativas.length})</b>\n${linhas.join('\n')}`);
+        }
+      }
+
+      if (tipo === 'audiencias' || tipo === 'tudo') {
+        const hearings = await db.getHearings();
+        const hoje = new Date().toISOString().split('T')[0];
+        const futuras = hearings.filter(h => h.date >= hoje).slice(0, 10);
+        if (futuras.length === 0) {
+          partes.push('⚖️ <b>Audiências</b>\nNenhuma audiência próxima.');
+        } else {
+          const linhas = futuras.map(h => {
+            const dtStr = new Date(h.date + 'T12:00:00').toLocaleDateString('pt-BR', { weekday:'short', day:'2-digit', month:'short' });
+            return `⚖️ <b>${h.cli}</b> · ${dtStr} às ${h.time}h`;
+          });
+          partes.push(`⚖️ <b>Audiências (${futuras.length})</b>\n${linhas.join('\n')}`);
+        }
+      }
+
+      reply = partes.join('\n\n');
 
     } else if (intent.action === 'ajuda_audiencia') {
       reply = '⚖️ Para cadastrar audiência, informe a data, horário e cliente:\n\n<b>Exemplos:</b>\n• audiência 18/06 14:00 João Silva\n• audiência 25/06 às 9h Maria Souza\n\nFormato: <code>audiência DD/MM HH:MM nome do cliente</code>';
